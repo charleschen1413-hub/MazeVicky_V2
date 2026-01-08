@@ -1,0 +1,657 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<title>韻雯的3D迷宮 - V2</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<style>
+    body {
+        background-color: #202020;
+        color: white;
+        font-family: 'Courier New', Courier, monospace;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        height: 100vh;
+        margin: 0;
+        overflow: hidden;
+        touch-action: none;
+        user-select: none;
+    }
+    #game-container {
+        position: relative;
+        width: 640px;
+        height: 1080px; 
+        max-width: 100vw;
+        max-height: 90vh; 
+        background: #000;
+    }
+    canvas {
+        width: 100%;
+        height: 100%;
+        display: block;
+        image-rendering: pixelated;
+    }
+    
+    /* --- UI 層 --- */
+    #ui-layer {
+        position: absolute;
+        top: 10px;
+        left: 0;
+        width: 100%;
+        text-align: center;
+        text-shadow: 1px 1px #000;
+        pointer-events: none;
+        z-index: 5;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 5px;
+    }
+    #sensitivity-box {
+        pointer-events: auto; 
+        background: rgba(0, 0, 0, 0.5);
+        padding: 5px 15px;
+        border-radius: 20px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-top: 5px;
+    }
+    #sensitivity-box label { font-size: 12px; color: #ffcc00; }
+    input[type=range] { width: 100px; accent-color: #ffcc00; cursor: pointer; }
+
+    /* --- 選單層 --- */
+    .menu-overlay {
+        position: absolute;
+        top: 0; left: 0; width: 100%; height: 100%;
+        background: rgba(0,0,0,0.85);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        z-index: 10;
+        display: none; 
+    }
+    .menu-overlay h1 { color: #fff; margin-bottom: 10px; }
+    .menu-option {
+        font-size: 24px; margin: 10px; padding: 5px 15px; cursor: pointer; border: 2px solid transparent; color: #888;
+    }
+    .menu-option.selected {
+        color: #ffcc00; border: 2px solid #ffcc00; background: rgba(255, 204, 0, 0.2);
+    }
+    
+    /* --- 虛擬搖桿 --- */
+    #joystick-zone {
+        display: block; 
+        position: absolute;
+        bottom: 90px;
+        left: 30px;
+        width: 140px;
+        height: 140px;
+        z-index: 100;
+    }
+    .joystick-base {
+        width: 100%;
+        height: 100%;
+        background: rgba(255, 255, 255, 0.15);
+        border: 2px solid rgba(255, 255, 255, 0.3);
+        border-radius: 50%;
+        position: relative;
+        cursor: pointer;
+    }
+    .joystick-stick {
+        width: 60px;
+        height: 60px;
+        background: rgba(255, 204, 0, 0.8);
+        border-radius: 50%;
+        position: absolute;
+        top: 50%; left: 50%;
+        transform: translate(-50%, -50%);
+        box-shadow: 0 0 10px rgba(0,0,0,0.5);
+        pointer-events: none; 
+        transition: transform 0.1s;
+    }
+
+    /* --- Enter 按鈕 --- */
+    #mobile-btn-enter {
+        position: absolute; bottom: 50px; right: 40px; width: 90px; height: 90px;
+        background-color: rgba(255, 255, 255, 0.2);
+        border: 3px solid rgba(255, 255, 255, 0.5);
+        border-radius: 50%;
+        color: white; font-size: 20px; font-weight: bold;
+        display: flex; justify-content: center; align-items: center;
+        cursor: pointer; z-index: 100; user-select: none;
+    }
+    #mobile-btn-enter:active { background-color: rgba(255, 255, 255, 0.5); }
+
+    @media (max-width: 680px) {
+        #game-container { width: 100vw; height: 100vh; max-height: 100vh;}
+    }
+</style>
+</head>
+<body>
+<div id="game-container">
+    <canvas id="gameCanvas" width="320" height="240"></canvas>
+    
+    <div id="ui-layer">
+        <div><span id="score-display">SCORE: 0</span> | <span id="time-display">TIME: 180</span></div>
+        <div id="sensitivity-box">
+            <label>搖桿靈敏度</label>
+            <input type="range" id="sensitivitySlider" min="1" max="10" value="5">
+            <span id="sensitivityValue">5</span>
+        </div>
+    </div>
+
+    <div id="menu-layer" class="menu-overlay" style="display: flex;">
+        <h1>3D 地鐵迷宮</h1><p>紅磚黃頂版</p>
+        <p style="color: #aaa; font-size: 14px; margin-top:20px;">按住左下搖桿移動</p>
+        <p style="color: #ffcc00; margin-top: 10px;">按 ENTER 開始</p>
+    </div>
+    <div id="difficulty-layer" class="menu-overlay">
+        <h1>選擇難度</h1><div id="opt-easy" class="menu-option selected">EASY (有指引)</div><div id="opt-hard" class="menu-option">HARD (無指引)</div>
+        <p style="font-size: 14px; color: #aaa; margin-top: 20px;">使用搖桿上下選擇，ENTER 確認</p>
+    </div>
+    <div id="gameover-layer" class="menu-overlay">
+        <h1 id="gameover-title"></h1><p id="gameover-score"></p><p style="color: #ffcc00; margin-top: 30px;">按 ENTER 回到標題</p>
+    </div>
+
+    <div id="joystick-zone"><div class="joystick-base"><div class="joystick-stick" id="stick"></div></div></div>
+    <div id="mobile-btn-enter">Enter</div>
+</div>
+
+<script>
+// ===========================
+//  資源載入
+// ===========================
+const bagImg = new Image(); bagImg.src = 'bag.png';
+const necklaceImg = new Image(); necklaceImg.src = 'necklace.png';
+const ringImg = new Image(); ringImg.src = 'ring.png';
+const arrowImg = new Image(); arrowImg.src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAAAXNSR0IArs4c6QAAAD5JREFUKFNjZEACj///Gf8TiRnwySNLYBIgDCIx4JNEFoAqwCqJLAAVgCqJLgAVgCqJLwA1nFADAB/rW/H/k6H3AAAAAElFTkSuQmCC';
+const ghostImg = new Image(); ghostImg.src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAAAXNSR0IArs4c6QAAAE9JREFUKFNjZIAAxhwF/38gTABi4wQY0ARgCjF0oCvEaQCyQlwasCmEqQGbg64Qp2F0DdgUwjRgM4RkI04D0D2B00BsDDOEZCM2jwM1YLMQAJqQDB3i/7o0AAAAAElFTkSuQmCC';
+
+// 材質變數
+let wallTexture = new Image(); // 改名為牆壁材質 (之前是 wood)
+let exitWallTexture = new Image();
+
+function generateTextures() {
+    // 1. 生成紅磚牆材質 (64x64)
+    let c = document.createElement('canvas'); c.width=64; c.height=64;
+    let x = c.getContext('2d');
+    
+    // 水泥縫 (底色)
+    x.fillStyle = '#cccccc'; 
+    x.fillRect(0,0,64,64);
+    
+    // 磚塊顏色 (紅褐色)
+    x.fillStyle = '#a52a2a'; 
+    
+    // 畫磚塊 (每行交錯)
+    let brickH = 16;
+    let brickW = 30;
+    for(let y=0; y<64; y+=brickH) {
+        // 偶數行 offset 0, 奇數行 offset 半塊磚
+        let offset = (y/brickH % 2 === 0) ? 0 : 16;
+        for(let px = -16; px < 64; px += 32) {
+            // 留 1px 縫隙
+            x.fillRect(px + offset + 1, y + 1, brickW, brickH - 2);
+        }
+    }
+    // 加一點雜訊讓磚塊不那麼死板
+    x.fillStyle = 'rgba(0,0,0,0.1)';
+    for(let i=0; i<20; i++) x.fillRect(Math.random()*64, Math.random()*64, 2, 2);
+    
+    wallTexture.src = c.toDataURL();
+
+    // 2. 生成出口牆面 (保持白色 + EXIT)
+    let c2 = document.createElement('canvas'); c2.width=64; c2.height=64;
+    let x2 = c2.getContext('2d');
+    x2.fillStyle = '#eeeeee'; x2.fillRect(0,0,64,64); 
+    x2.strokeStyle = '#ccc'; x2.lineWidth=2; x2.strokeRect(0,0,64,64);
+    x2.fillStyle = '#cc0000'; x2.font = 'bold 20px monospace';
+    x2.textAlign = 'center'; x2.textBaseline = 'middle';
+    x2.fillText('EXIT', 32, 32);
+    x2.strokeStyle = '#000'; x2.lineWidth=2; x2.strokeRect(5, 15, 54, 34);
+    exitWallTexture.src = c2.toDataURL();
+}
+
+// ===========================
+//  遊戲變數
+// ===========================
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const screenWidth = canvas.width; const screenHeight = canvas.height;
+const STATE = { MENU: 0, DIFFICULTY: 1, PLAYING: 2, GAMEOVER: 3, WIN: 4 };
+let currentState = STATE.MENU;
+let difficulty = 'EASY'; let score = 0; let timeLeft = 180; let timerInterval = null;
+
+const mapWidth = 20; const mapHeight = 25;
+const gameMap = [
+    [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+    [1,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,1],
+    [1,0,1,0,1,1,1,1,1,0,1,0,1,1,1,1,1,1,1,1],
+    [1,0,1,0,0,0,1,0,0,0,1,0,0,0,0,0,1,0,0,1],
+    [1,0,1,1,1,1,1,0,1,1,1,1,1,1,1,0,1,0,0,1],
+    [1,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1],
+    [1,0,1,1,1,1,1,1,1,1,0,1,1,1,1,1,1,1,1,1],
+    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+    [1,1,1,1,1,1,1,0,1,0,1,1,1,1,1,0,1,1,1,1],
+    [1,0,0,0,0,0,0,0,1,0,0,0,1,0,0,0,0,0,0,1],
+    [1,1,1,1,1,1,1,0,1,0,1,0,1,0,1,1,1,1,0,1],
+    [1,0,0,0,0,0,1,0,1,0,1,0,1,0,1,0,0,0,0,1],
+    [1,0,1,1,1,0,1,0,1,0,1,0,1,0,1,0,1,1,1,1],
+    [1,0,1,0,0,0,1,0,1,0,1,0,0,0,1,0,0,0,0,1],
+    [1,0,1,0,1,1,1,1,1,0,1,1,1,1,1,1,1,1,0,1],
+    [1,0,1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,1],
+    [1,0,1,1,1,1,1,1,0,1,1,0,1,1,1,1,1,1,1,1],
+    [1,0,0,0,0,0,0,1,0,1,1,0,0,0,0,0,0,0,0,1],
+    [1,1,1,1,1,1,1,1,0,1,1,1,1,1,1,1,1,1,1,1],
+    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+    [1,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+    [1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+    [1,0,1,1,1,1,1,0,1,0,1,1,1,1,1,1,1,1,1,1],
+    [1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,9,1],
+    [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]
+];
+
+const BASE_ROT_SPEED = 0.03;
+const BASE_MOVE_SPEED = 0.05;
+let player = { x: 1.5, y: 1.5, dir: Math.PI / 2, rotSpeed: BASE_ROT_SPEED, moveSpeed: BASE_MOVE_SPEED, radius: 0.3 };
+let exitPos = { x: 18.5, y: 23.5 }; 
+const FOV = Math.PI / 3;
+
+let items = [];
+const ITEM_TYPES = [
+    { img: bagImg, name: '包包', score: 100 }, { img: necklaceImg, name: '項鍊', score: 150 }, { img: ringImg, name: '戒指', score: 200 }
+];
+
+let joystickData = { active: false, x: 0, y: 0 }; 
+let sensitivity = 5; 
+
+// ===========================
+//  初始化
+// ===========================
+function init() {
+    generateTextures(); 
+    setupJoystickControls();
+    setupSensitivityControl();
+    document.getElementById('ui-layer').style.display = 'none'; 
+    renderBackground(); 
+    setInterval(gameLoop, 1000 / 30);
+}
+
+function setupSensitivityControl() {
+    const slider = document.getElementById('sensitivitySlider');
+    const valDisplay = document.getElementById('sensitivityValue');
+    slider.addEventListener('input', (e) => {
+        sensitivity = parseInt(e.target.value);
+        valDisplay.innerText = sensitivity;
+        let multiplier = 0.5 + (sensitivity - 1) * (1.5 / 9);
+        player.rotSpeed = BASE_ROT_SPEED * multiplier;
+        player.moveSpeed = BASE_MOVE_SPEED * multiplier;
+    });
+}
+
+function setupJoystickControls() {
+    const zone = document.querySelector('.joystick-base');
+    const stick = document.getElementById('stick');
+    const enterBtn = document.getElementById('mobile-btn-enter');
+    
+    const triggerEnter = (e) => { e.preventDefault(); handleInput('Enter'); };
+    enterBtn.addEventListener('mousedown', triggerEnter);
+    enterBtn.addEventListener('touchstart', triggerEnter);
+
+    const getPointerPos = (e) => {
+        if (e.touches) return { x: e.touches[0].clientX, y: e.touches[0].clientY };
+        return { x: e.clientX, y: e.clientY };
+    };
+
+    const startDrag = (e) => {
+        if (e.type === 'mousedown') e.preventDefault();
+        joystickData.active = true;
+        updateStick(getPointerPos(e));
+    };
+    const moveDrag = (e) => {
+        if (joystickData.active) {
+            e.preventDefault();
+            updateStick(getPointerPos(e));
+        }
+    };
+    const endDrag = (e) => {
+        if (!joystickData.active) return;
+        e.preventDefault();
+        joystickData.active = false;
+        joystickData.x = 0; joystickData.y = 0;
+        stick.style.transform = `translate(-50%, -50%)`;
+        stick.style.transition = 'transform 0.1s';
+    };
+
+    zone.addEventListener('touchstart', startDrag, {passive: false});
+    document.addEventListener('touchmove', moveDrag, {passive: false});
+    document.addEventListener('touchend', endDrag, {passive: false});
+    zone.addEventListener('mousedown', startDrag);
+    document.addEventListener('mousemove', moveDrag);
+    document.addEventListener('mouseup', endDrag);
+
+    function updateStick(pos) {
+        const rect = zone.getBoundingClientRect();
+        const centerX = rect.width / 2;
+        const centerY = rect.height / 2;
+        let dx = pos.x - rect.left - centerX;
+        let dy = pos.y - rect.top - centerY;
+        const maxRadius = rect.width / 2 - 30;
+        const distance = Math.sqrt(dx*dx + dy*dy);
+        if (distance > maxRadius) {
+            const ratio = maxRadius / distance;
+            dx *= ratio; dy *= ratio;
+        }
+        stick.style.transition = 'none';
+        stick.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
+        joystickData.x = dx / maxRadius;
+        joystickData.y = dy / maxRadius;
+        
+        if (currentState !== STATE.PLAYING && Math.abs(joystickData.y) > 0.5) {
+             if (!player.menuLock) {
+                 handleInput(joystickData.y > 0 ? 'ArrowDown' : 'ArrowUp');
+                 player.menuLock = true;
+                 setTimeout(() => player.menuLock = false, 300);
+             }
+        }
+    }
+}
+
+function handleInput(key) {
+    if (currentState === STATE.MENU) { 
+        if (key === 'Enter') currentState = STATE.DIFFICULTY; 
+    } 
+    else if (currentState === STATE.DIFFICULTY) {
+        if (key === 'Enter') startGame();
+        if (key === 'ArrowUp') { difficulty = 'EASY'; updateDifficultyUI(); }
+        if (key === 'ArrowDown') { difficulty = 'HARD'; updateDifficultyUI(); }
+    }
+    else if (currentState === STATE.GAMEOVER || currentState === STATE.WIN) { 
+        if (key === 'Enter') resetGame(); 
+    }
+}
+
+function gameLoop() {
+    const enterBtn = document.getElementById('mobile-btn-enter');
+    const uiLayer = document.getElementById('ui-layer');
+    if (currentState === STATE.PLAYING) {
+        enterBtn.style.display = 'none'; 
+        uiLayer.style.display = 'flex';
+        updatePlayer(); checkCollisionsAndItems(); renderScene(); 
+    } else {
+        enterBtn.style.display = 'flex'; 
+        if (currentState === STATE.MENU) {
+             document.getElementById('menu-layer').style.display = 'flex';
+             document.getElementById('difficulty-layer').style.display = 'none';
+        } else if (currentState === STATE.DIFFICULTY) {
+             document.getElementById('menu-layer').style.display = 'none';
+             document.getElementById('difficulty-layer').style.display = 'flex';
+        }
+    }
+}
+
+function updateDifficultyUI() {
+    const easyBtn = document.getElementById('opt-easy'); const hardBtn = document.getElementById('opt-hard');
+    if (difficulty === 'EASY') { easyBtn.classList.add('selected'); hardBtn.classList.remove('selected'); } else { easyBtn.classList.remove('selected'); hardBtn.classList.add('selected'); }
+}
+
+function startGame() {
+    currentState = STATE.PLAYING; 
+    document.getElementById('difficulty-layer').style.display = 'none'; 
+    document.getElementById('gameover-layer').style.display = 'none';
+    player.x = 1.5; player.y = 1.5; player.dir = Math.PI / 2; 
+    score = 0; timeLeft = 180; updateUI();
+    spawnItemsAndGuides();
+    if (timerInterval) clearInterval(timerInterval);
+    timerInterval = setInterval(() => { timeLeft--; updateUI(); if (timeLeft <= 0) endGame(false); }, 1000);
+}
+
+function resetGame() {
+    currentState = STATE.MENU; 
+    document.getElementById('gameover-layer').style.display = 'none'; 
+    document.getElementById('menu-layer').style.display = 'flex'; 
+    ctx.fillStyle = '#000'; ctx.fillRect(0,0,screenWidth,screenHeight);
+}
+
+function endGame(win) {
+    currentState = win ? STATE.WIN : STATE.GAMEOVER; clearInterval(timerInterval);
+    const title = win ? "恭喜過關!" : (timeLeft<=0 ? "時間到!" : "被鬼抓到了!"); 
+    const color = win ? '#00FF00' : '#FF0000';
+    document.getElementById('gameover-title').innerText = title; document.getElementById('gameover-title').style.color = color; document.getElementById('gameover-score').innerText = `最終分數: ${score}`;
+    document.getElementById('gameover-layer').style.display = 'flex';
+}
+
+function updatePlayer() {
+    if (!joystickData.active) return;
+    if (Math.abs(joystickData.x) > 0.2) player.dir += joystickData.x * player.rotSpeed;
+    player.dir %= (Math.PI * 2);
+    if (player.dir < 0) player.dir += (Math.PI * 2);
+
+    let moveStep = 0;
+    if (Math.abs(joystickData.y) > 0.2) moveStep = -joystickData.y * player.moveSpeed;
+    if (moveStep !== 0) {
+        let newX = player.x + Math.cos(player.dir) * moveStep; 
+        let newY = player.y + Math.sin(player.dir) * moveStep;
+        if (!isWall(newX, player.y)) player.x = newX; 
+        if (!isWall(player.x, newY)) player.y = newY;
+    }
+}
+
+function isWall(x, y) {
+    if (x < 0 || x >= mapWidth || y < 0 || y >= mapHeight) return true;
+    if (gameMap[Math.floor(y)][Math.floor(x)] > 0) return true;
+    return false;
+}
+function checkCollisionsAndItems() {
+    let mapX = Math.floor(player.x); let mapY = Math.floor(player.y);
+    for(let dy=-1; dy<=1; dy++) {
+        for(let dx=-1; dx<=1; dx++) {
+            if(gameMap[mapY+dy][mapX+dx] === 9) {
+                 let distToExit = Math.sqrt((player.x - (mapX+dx+0.5))**2 + (player.y - (mapY+dy+0.5))**2);
+                 if(distToExit < 0.8) { endGame(true); return; }
+            }
+        }
+    }
+    for (let item of items) {
+        if (item.active && item.isCollectable) {
+            let dist = Math.sqrt((player.x - item.x)**2 + (player.y - item.y)**2);
+            if (dist < 0.5) { item.active = false; score += item.score; updateUI(); }
+        }
+    }
+}
+function updateUI() {
+    document.getElementById('score-display').innerText = `SCORE: ${score}`; document.getElementById('time-display').innerText = `TIME: ${timeLeft}`;
+}
+
+function spawnItemsAndGuides() {
+    items = [];
+    for(let y=0; y<mapHeight; y++) {
+        for(let x=0; x<mapWidth; x++) {
+            if(gameMap[y][x] === 9) { exitPos = { x: x + 0.5, y: y + 0.5 }; }
+        }
+    }
+    let count = 15;
+    for(let i=0; i<count; i++) {
+        let rx, ry;
+        do { rx = Math.floor(Math.random() * mapWidth); ry = Math.floor(Math.random() * mapHeight);
+        } while (gameMap[ry][rx] !== 0 || (Math.floor(player.x) === rx && Math.floor(player.y) === ry));
+        let type = ITEM_TYPES[Math.floor(Math.random() * ITEM_TYPES.length)];
+        items.push({ x: rx + 0.5, y: ry + 0.5, img: type.img, score: type.score, active: true, isCollectable: true });
+    }
+    if (difficulty === 'EASY') {
+        const path = findPathToExit();
+        if (path) {
+            for (let i = 1; i < path.length; i++) { 
+                let p = path[i];
+                items.push({ x: p.x + 0.5, y: p.y + 0.5, img: arrowImg, score: 0, active: true, isCollectable: false });
+            }
+        }
+    }
+}
+function findPathToExit() {
+    let startNode = {x: Math.floor(player.x), y: Math.floor(player.y), parent: null};
+    let queue = [startNode]; let visited = new Set(); visited.add(`${startNode.x},${startNode.y}`);
+    let dirs = [[0,1], [0,-1], [1,0], [-1,0]]; let endNode = null;
+    while(queue.length > 0) {
+        let current = queue.shift();
+        if (gameMap[current.y][current.x] === 9) { endNode = current; break; }
+        for (let d of dirs) {
+            let nx = current.x + d[0]; let ny = current.y + d[1];
+            if (nx >=0 && nx < mapWidth && ny >= 0 && ny < mapHeight) {
+                let key = `${nx},${ny}`;
+                if (!visited.has(key) && (gameMap[ny][nx] === 0 || gameMap[ny][nx] === 9)) {
+                    visited.add(key); queue.push({x: nx, y: ny, parent: current});
+                }
+            }
+        }
+    }
+    if (!endNode) return null;
+    let path = []; let curr = endNode;
+    while(curr) { path.push({x: curr.x, y: curr.y}); curr = curr.parent; }
+    return path.reverse();
+}
+
+// ===========================
+//  渲染引擎
+// ===========================
+function renderBackground() {
+    // 1. 天花板 (暗黃色)
+    ctx.fillStyle = '#bbaa00'; 
+    ctx.fillRect(0, 0, screenWidth, screenHeight / 2);
+
+    // 2. 地板漸層 (距離越近出口越亮)
+    let dist = Math.sqrt((player.x - exitPos.x)**2 + (player.y - exitPos.y)**2);
+    let maxDist = 35;
+    let ratio = 1 - (dist / maxDist);
+    if (ratio < 0) ratio = 0; if (ratio > 1) ratio = 1;
+    let lightness = 10 + (ratio * 50); // 10% ~ 60%
+    ctx.fillStyle = `hsl(0, 0%, ${lightness}%)`;
+    ctx.fillRect(0, screenHeight / 2, screenWidth, screenHeight / 2);
+}
+
+function renderScene() {
+    renderBackground(); 
+    let zBuffer = [];
+    
+    for (let x = 0; x < screenWidth; x++) {
+        let rayAngle = (player.dir - FOV / 2) + (x / screenWidth) * FOV;
+        let eyeX = Math.cos(rayAngle), eyeY = Math.sin(rayAngle);
+        
+        let dist = 0, hit = false, hitType = 0; 
+        let tx = player.x, ty = player.y;
+        let mapX = Math.floor(tx), mapY = Math.floor(ty);
+        
+        // DDA
+        let deltaDistX = Math.abs(1 / eyeX);
+        let deltaDistY = Math.abs(1 / eyeY);
+        let stepX, stepY, sideDistX, sideDistY, side;
+        
+        if (eyeX < 0) { stepX = -1; sideDistX = (player.x - mapX) * deltaDistX; }
+        else { stepX = 1; sideDistX = (mapX + 1.0 - player.x) * deltaDistX; }
+        if (eyeY < 0) { stepY = -1; sideDistY = (player.y - mapY) * deltaDistY; }
+        else { stepY = 1; sideDistY = (mapY + 1.0 - player.y) * deltaDistY; }
+
+        while (!hit) {
+            if (sideDistX < sideDistY) { sideDistX += deltaDistX; mapX += stepX; side = 0; }
+            else { sideDistY += deltaDistY; mapY += stepY; side = 1; }
+            
+            if (mapX<0 || mapX>=mapWidth || mapY<0 || mapY>=mapHeight || gameMap[mapY][mapX] > 0) {
+                hit = true;
+                hitType = (mapX>=0 && mapX<mapWidth && mapY>=0 && mapY<mapHeight) ? gameMap[mapY][mapX] : 1;
+            }
+        }
+        
+        if (side == 0) dist = (mapX - player.x + (1 - stepX) / 2) / eyeX;
+        else           dist = (mapY - player.y + (1 - stepY) / 2) / eyeY;
+        
+        zBuffer[x] = dist; 
+        
+        let correctDist = dist * Math.cos(rayAngle - player.dir);
+        let h = Math.floor(screenHeight / correctDist);
+        let drawStart = -h / 2 + screenHeight / 2;
+        
+        // 畫牆壁
+        let wallX; 
+        if (side == 0) wallX = player.y + dist * eyeY;
+        else           wallX = player.x + dist * eyeX;
+        wallX -= Math.floor(wallX);
+        let texX = Math.floor(wallX * 64);
+        if(side == 0 && eyeX > 0) texX = 64 - texX - 1;
+        if(side == 1 && eyeY < 0) texX = 64 - texX - 1;
+
+        // 使用 wallTexture (紅磚) 或 exitWallTexture
+        let textureToUse = (hitType === 9) ? exitWallTexture : wallTexture;
+        let shadow = Math.min(1, correctDist / 20); 
+        
+        if (textureToUse.complete && textureToUse.width > 0) {
+             ctx.drawImage(textureToUse, texX, 0, 1, 64, x, drawStart, 1, h);
+        } else {
+             ctx.fillStyle = hitType===9 ? '#fff' : '#a52a2a';
+             ctx.fillRect(x, drawStart, 1, h);
+        }
+        if(shadow > 0) {
+            ctx.fillStyle = `rgba(0,0,0,${shadow})`;
+            ctx.fillRect(x, drawStart, 1, h);
+        }
+        
+        // 天花板日光燈
+        if (h < screenHeight) {
+            let ceilingEnd = Math.floor(drawStart);
+            for (let y = 0; y < ceilingEnd; y+=4) { 
+                let currentDist = screenHeight / (screenHeight - 2.0 * y);
+                let weight = currentDist / dist;
+                let currentFloorX = weight * mapX + (1.0 - weight) * player.x;
+                let currentFloorY = weight * mapY + (1.0 - weight) * player.y;
+                let cx = Math.floor(currentFloorX);
+                let cy = Math.floor(currentFloorY);
+                if (cx % 3 === 0 && cy % 3 === 0) {
+                    let fx = currentFloorX - cx; let fy = currentFloorY - cy;
+                    if (fx > 0.4 && fx < 0.6 && fy > 0.4 && fy < 0.6) {
+                        ctx.fillStyle = '#fff';
+                        ctx.fillRect(x, y, 1, 4);
+                    }
+                }
+            }
+        }
+    }
+    drawSprites(zBuffer);
+}
+
+function drawSprites(zBuffer) {
+    for (let item of items) {
+        if (!item.active) continue;
+        item.dist = Math.sqrt((player.x - item.x)**2 + (player.y - item.y)**2);
+        let dx = item.x - player.x; let dy = item.y - player.y;
+        let angle = Math.atan2(dy, dx) - player.dir;
+        while (angle < -Math.PI) angle += 2 * Math.PI;
+        while (angle > Math.PI) angle -= 2 * Math.PI;
+        item.angle = angle;
+    }
+    items.sort((a, b) => b.dist - a.dist);
+    for (let item of items) {
+        if (!item.active || item.dist < 0.5) continue;
+        if(Math.abs(item.angle) < FOV / 1.5) { 
+            let screenX = (0.5 * (item.angle / (FOV / 2)) + 0.5) * screenWidth;
+            let size = screenHeight / item.dist * 0.4;
+            if (size > 2000) size = 2000; 
+            if (!item.isCollectable && !item.isExitSign) size *= 0.6;
+            let drawY = (screenHeight - size) / 2 + size / 2; 
+            if (!item.isCollectable && !item.isExitSign) drawY += size * 0.5;
+
+            let cX = Math.floor(screenX);
+            if(cX >=0 && cX < screenWidth && item.dist < zBuffer[cX]) {
+                if (item.img && item.img.complete && item.img.width > 0) {
+                    ctx.drawImage(item.img, screenX - size/2, drawY - size/2, size, size);
+                }
+            }
+        }
+    }
+}
+init();
+</script>
+</body>
+</html>
